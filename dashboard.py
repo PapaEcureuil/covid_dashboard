@@ -52,8 +52,10 @@ def get_detailed_daily_reports(last_date=date.today() - timedelta(1), ts_type='C
         df.loc[day, daily_df.index] = daily_df[ts_type].values
     return df[[x for x in a2_to_fullname.values() if x in df.columns]].fillna(0)
 
-def plot_df(df, plot_title=''):
+def plot_df(df,  highlighted_cols, plot_title=''):
     # Dropdown menu to choose between linear and log scale
+    visibility = lambda x: True if x in highlighted_cols else 'legendonly'
+
     updatemenus = list([
     dict(active=1,
          buttons=list([
@@ -75,7 +77,7 @@ def plot_df(df, plot_title=''):
     fig = go.Figure(layout=dict(title=plot_title, width=1500, height=700, updatemenus=updatemenus))
 
     for col in df.columns:
-        fig.add_scatter(x=df.index, y=df[col], name=col)
+        fig.add_scatter(x=df.index, y=df[col], name=col, visible=visibility(col))
 
     fig.update_layout(xaxis=dict(rangeslider=dict(
             visible=True
@@ -103,8 +105,13 @@ def main():
     ts_type = st.sidebar.selectbox('Confirmed Cases / Deaths', ['Confirmed', 'Deaths'])
     df = get_global_data(ts_type=ts_type) if df_type=='Global' else get_detailed_daily_reports(ts_type=ts_type)
 
-    st.plotly_chart(plot_df(df, plot_title=df_type))
-    st.info('Data fetched from https://github.com/CSSEGISandData/COVID-19')
+    default_countries = ['France', 'Italy', 'Spain', 'US'] if df_type == 'Global' else list(df.columns.values)
+
+    highlighted_cols = st.multiselect('Select multiple countries, others will be hidden on chart.', list(df.columns.values), default_countries)
+
+    st.plotly_chart(plot_df(df, highlighted_cols, plot_title=df_type,))
+    st.info('_Data fetched from https://github.com/CSSEGISandData/COVID-19_')
+    st.info('_Code available at https://github.com/PapaEcureuil/covid_dashboard_')
 
 if __name__ == "__main__":
     main()
