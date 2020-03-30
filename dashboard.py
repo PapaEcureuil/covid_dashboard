@@ -13,7 +13,13 @@ def get_global_data(last_date=date.today() - timedelta(1), ts_type='Confirmed'):
         [description], by default date.today()-timedelta(1)
     """
     global_ts_link = f'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_{ts_type.lower()}_global.csv'
-    return pd.read_csv(global_ts_link).groupby('Country/Region').sum().drop(['Lat', 'Long'], axis=1).T.set_index(pd.date_range(start='2020-01-22', end=last_date))
+    return pd.read_csv(global_ts_link).groupby('Country/Region').sum().drop(['Lat', 'Long'], axis=1)\
+        .T.set_index(pd.date_range(start='2020-01-22', end=last_date))
+
+@st.cache
+def get_locations(ts_type):
+    global_ts_link = f'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_{ts_type.lower()}_global.csv'
+    return pd.read_csv(global_ts_link).groupby('Country/Region').mean().loc[:, ['Lat', 'Long']]
 
 @st.cache
 def get_detailed_daily_reports(last_date=date.today() - timedelta(1), ts_type='Confirmed'):
@@ -43,7 +49,8 @@ def get_detailed_daily_reports(last_date=date.today() - timedelta(1), ts_type='C
         # Then from 03-10, full state name
         if day < pd.to_datetime('2020-03-10') and day > pd.to_datetime('2020-01-31'):
             # Get only A2 state name and translate it to its full name
-            daily_df[province_col] = daily_df[province_col].astype(str).apply(lambda x: x.split(',')[-1].replace(' ', '').replace('.', '')).replace(a2_to_fullname)
+            daily_df[province_col] = daily_df[province_col].astype(str).\
+                apply(lambda x: x.split(',')[-1].replace(' ', '').replace('.', '')).replace(a2_to_fullname)
 
         daily_df = daily_df.groupby(province_col).sum()[[ts_type]]
 
@@ -52,23 +59,24 @@ def get_detailed_daily_reports(last_date=date.today() - timedelta(1), ts_type='C
         df.loc[day, daily_df.index] = daily_df[ts_type].values
     return df[[x for x in a2_to_fullname.values() if x in df.columns]].fillna(0)
 
+
 def plot_df(df,  highlighted_cols, plot_title=''):
     # Dropdown menu to choose between linear and log scale
     visibility = lambda x: True if x in highlighted_cols else 'legendonly'
 
     updatemenus = list([
-    dict(active=1,
+        dict(active=1,
          buttons=list([
             dict(label='Log Scale',
                  method='update',
-                 args=[{'visible': [True, True]},
+                 args=[{'visible': [visibility(x) for x in df.columns]},
                        {'title': 'Log scale',
-                        'yaxis': {'type': 'log'}}]),
+                        'yaxis': {'type': 'log', 'range': [0, 5], 'fixedrange': False}}]),
             dict(label='Linear Scale',
                  method='update',
-                 args=[{'visible': [True, False]},
+                 args=[{'visible': [visibility(x) for x in df.columns]},
                        {'title': 'Linear scale',
-                        'yaxis': {'type': 'linear'}}])
+                        'yaxis': {'type': 'linear', 'fixedrange': False}}])
             ]),
         )
     ])
@@ -79,11 +87,15 @@ def plot_df(df,  highlighted_cols, plot_title=''):
     for col in df.columns:
         fig.add_scatter(x=df.index, y=df[col], name=col, visible=visibility(col))
 
-    fig.update_layout(xaxis=dict(rangeslider=dict(
+    fig.update_layout(
+        xaxis=dict(
+            rangeslider=dict(
             visible=True
-        )))
+        )),
+        yaxis = dict(
+            fixedrange = False
+        ))
     return fig
-
 
 def _max_width_(nb_pixels=1500):
     max_width_str = f"max-width: {nb_pixels}px;"
@@ -100,7 +112,7 @@ def _max_width_(nb_pixels=1500):
 
 def main():
     _max_width_()
-    st.title('Stay the fuck Home')
+    st.title('Stay the fuck Home :derelict_house_building:')
     df_type = st.sidebar.selectbox('World Global or US States', ['Global', 'US States'])
     ts_type = st.sidebar.selectbox('Confirmed Cases / Deaths', ['Confirmed', 'Deaths'])
     df = get_global_data(ts_type=ts_type) if df_type=='Global' else get_detailed_daily_reports(ts_type=ts_type)
