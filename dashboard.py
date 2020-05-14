@@ -4,6 +4,9 @@ from datetime import date, timedelta
 from plotly import graph_objs as go
 import pydeck
 from resources import utils
+import os
+
+MAPBOX_API_KEY = os.environ['MAPBOX_API_KEY']
 
 @st.cache
 def get_global_data(last_date=date.today() - timedelta(1), ts_type='Confirmed'):
@@ -72,7 +75,7 @@ def plot_df(df,  highlighted_cols, plot_title=''):
                  method='update',
                  args=[{'visible': [visibility(x) for x in df.columns]},
                        {'title': 'Log scale',
-                        'yaxis': {'type': 'log', 'range': [0, 5], 'fixedrange': False}}]),
+                        'yaxis': {'type': 'log', 'range': [0, 7], 'fixedrange': False}}]),
             dict(label='Linear Scale',
                  method='update',
                  args=[{'visible': [visibility(x) for x in df.columns]},
@@ -112,7 +115,7 @@ def _max_width_(nb_pixels=1500):
     )
 
 
-@st.cache(persist=True)
+@st.cache
 def get_world_as_polygons():
     """Can't get GeoJson Layers to work on pydeck, nor multipolygon, so we'll hack it with
     Polygons and redondant countries
@@ -130,6 +133,49 @@ def get_world_as_polygons():
 
     return simple.append(complicated)[['coords', 'country']]
 
+def pydeck_map(d, ts_type):
+    df_to_join = get_global_data(ts_type=ts_type).loc[d]
+    polygons = get_world_as_polygons()
+    df_to_join = df_to_join.rename(index=utils.COUNTRIES_NAME)
+    display = polygons.join(df_to_join, on='country').dropna()
+    display.columns = ['coords', 'country', 'cases']
+
+    display['color'] = pd.cut(display.cases,
+        bins=len(utils.COLOR_RANGE),
+        labels=[str(x) for x in utils.COLOR_RANGE],
+        include_lowest=True)
+
+    geojson = pydeck.Layer(
+        'PolygonLayer',
+        display,
+        opacity=0.6,
+        get_polygon='coords',
+        stroked=True,
+        filled=True,
+        extruded=True,
+        wireframe=True,
+        get_elevation='cases',
+        elevation_range=[0, 100000],
+        get_fill_color='color',
+        get_line_color='color',
+        pickable=True
+    )
+
+    INITIAL_VIEW_STATE = pydeck.ViewState(
+        latitude=0,
+        longitude=0,
+        zoom=1,
+        max_zoom=8,
+        pitch=25,
+        bearing=0
+    )
+
+    st.pydeck_chart(pydeck.Deck(
+        map_style='mapbox://styles/mapbox/dark-v9',
+        layers=[geojson],
+        initial_view_state=INITIAL_VIEW_STATE))
+
+
 def _hide_menu_():
     hide_menu_style = """
         <style>
@@ -138,13 +184,65 @@ def _hide_menu_():
     """
     st.markdown(hide_menu_style, unsafe_allow_html=True)
 
+@st.cache
+def plotly_preprocess(d, ts_type):
+    raw = pd.read_json('resources/countries.geojson')
+    raw['country'] = raw.features.apply(lambda x: x['properties']['ADMIN'])
+    df = get_global_data(ts_type=ts_type).loc[d]
+    df = df.rename(index=utils.COUNTRIES_NAME)
+    display = raw.join(df, on='country').dropna()
+    # st.write(display.head())
+    display.columns = ['type', 'features', 'country', 'cases']
+    display['color'] = pd.cut(display.cases,
+        bins=len(utils.COLOR_RANGE),
+        labels=[str(x) for x in utils.PLOTLY_COLORS],
+        include_lowest=True)
+    return display
+
+
+def plotly_world_map(d, ts_type):
+    display = plotly_preprocess(d, ts_type)
+
+    layout = go.Layout(
+    height=700,
+    width=1500,
+    autosize=True,
+    hovermode='closest',
+    mapbox=dict(
+        layers=[
+            dict(
+                sourcetype = 'geojson',
+                source = X.features,
+                type = 'fill',
+                color = X.color
+            ) for _, X in display.iterrows()
+        ],
+        accesstoken=MAPBOX_API_KEY,
+        bearing=0,
+        center=dict(
+            lat=0,
+             lon=0
+        ),
+        pitch=10,
+        zoom=1,
+        style='dark'
+     ),
+    )
+    fig = go.Figure(data=go.Scattermapbox(
+        ), layout=layout)
+    st.plotly_chart(fig)
+
+
+
 def main():
+    info = st.empty()
+
     _max_width_()
     _hide_menu_()
-    st.title('Stay the fuck Home :derelict_house_building:')
+    st.title('Stay Home :derelict_house_building:')
     ts_type = st.sidebar.selectbox('Confirmed Cases / Deaths', ['Confirmed', 'Deaths'])
 
-    show_graph = st.checkbox('Show Graph ?', False)
+    show_graph = st.checkbox('Show Graph ?', True)
     if show_graph:
         df_type = st.sidebar.selectbox('World Global or US States', ['Global', 'US States'])
         df = get_global_data(ts_type=ts_type) if df_type=='Global' else get_detailed_daily_reports(ts_type=ts_type)
@@ -153,49 +251,12 @@ def main():
 
         st.plotly_chart(plot_df(df, highlighted_cols, plot_title=df_type,))
 
-    show_map = st.checkbox('Show Map?', True)
+    show_map = st.checkbox('Show Map?', False)
     if show_map:
         d = st.date_input('Choose date', date.today() - timedelta(1))
-
-        df_to_join = get_global_data(ts_type=ts_type).loc[d]
-        polygons = get_world_as_polygons()
-        df_to_join = df_to_join.rename(index=utils.COUNTRIES_NAME)
-        display = polygons.join(df_to_join, on='country').dropna()
-        display.columns = ['coords', 'country', 'cases']
-        display['color'] = pd.cut(display.cases,
-            bins=len(utils.COLOR_RANGE),
-            labels=[str(x) for x in utils.COLOR_RANGE],
-            include_lowest=True)
-
-        geojson = pydeck.Layer(
-            'PolygonLayer',
-            display,
-            opacity=1,
-            get_polygon='coords',
-            stroked=True,
-            filled=True,
-            extruded=True,
-            # wireframe=True,
-            get_elevation='cases * 10',
-            elevation_range=[0, 100000],
-            get_fill_color='color',
-            get_line_color='color',
-            pickable=True
-        )
-
-        INITIAL_VIEW_STATE = pydeck.ViewState(
-            latitude=0,
-            longitude=0,
-            zoom=1,
-            max_zoom=8,
-            pitch=25,
-            bearing=0
-        )
-
-        st.pydeck_chart(pydeck.Deck(
-            layers=[geojson],
-            initial_view_state=INITIAL_VIEW_STATE))
-
+        # Plotly's world map is way too slow
+        # plotly_world_map(d, ts_type)
+        pydeck_map(d, ts_type)
 
     st.info('_Covid Data fetched from https://github.com/CSSEGISandData/COVID-19_')
     st.info('_Countries geojson downloaded at https://datahub.io/core/geo-countries_')

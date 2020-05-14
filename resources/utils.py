@@ -35,3 +35,7 @@ COLOR_RANGE = [
     [189, 0, 38],
     [128, 0, 38],
 ]
+
+PLOTLY_COLORS = [
+    f'rgba({x[0]}, {x[1]}, {x[2]}, 0.8)' for x in COLOR_RANGE
+]
